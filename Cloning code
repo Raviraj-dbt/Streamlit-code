@@ -1,0 +1,473 @@
+# Import python packages
+import streamlit as st
+import streamlit as st1
+import pandas as pd
+from snowflake.snowpark.context import get_active_session
+from snowflake.snowpark.functions import col
+from snowflake.snowpark.window import Window
+# import plotly.express as px 
+import datetime
+import altair as alt
+import re
+#############################################
+#     FORMATTING
+#############################################
+#set to wide format
+st.set_page_config(layout="wide")
+session = get_active_session()
+# Write directly to the app
+st.title("Snowflake Cloning")
+st.divider()
+
+#Sub heading info
+st.markdown("This app is developed clone for snowflake resources in Snowflake account")
+
+
+defaultdatabase = 'GSMSTEST'
+defaultschema = 'GSMS_STREAMLIT_TEST'
+
+
+def stateManger(Bool):
+    st.session_state.currentState = Bool
+    # return st.session_state.current
+
+
+def extract_db_names():
+    # for i in range(len(db)):
+        projectName = ''
+        showdb = f"select database_name from snowflake.information_schema.databases"
+        show_db_df = session.sql(showdb).to_pandas()
+        show_db_NClone = show_db_df
+    
+        return show_db_NClone,show_db_df
+@st.cache_data
+def extract_schema_names(db,objtype):
+    for i in range(len(db)):
+        projectName = ''
+        showschemas = f"select schema_name from {db[i]}.information_schema.schemata  "
+        show_schemas_df = session.sql(showschemas).to_pandas()
+       
+        show_schemas_df = show_schemas_df[show_schemas_df.SCHEMA_NAME != 'INFORMATION_SCHEMA']
+        show_schemas_NClone =show_schemas_df
+        #st.write(show_schemas_df,show_schemas_NClone)
+        return show_schemas_NClone,show_schemas_df
+
+def extract_object_names(db,schemanames,objtype):
+    
+    schemaobjectpydf = []
+    schemaobjectpydffinal = []
+    objectsfinal = []
+    objectlist = []
+    objlst = []
+    for i in range(len(db)):
+        for j in range(len(schemanames)):
+            #st.write(schemanames)
+            showschemasobj = f"show TABLES in schema {db[i]}.{schemanames[j]}"
+            show_schemas_df_obj = session.sql(showschemasobj).collect()
+            #st.write(show_schemas_df_obj)
+            for i in show_schemas_df_obj:
+                #if show_schemas_df_obj[i][4]!='TRANSIENT':
+                 schemaobjectpydf.append(list(i.as_dict().values()))
+            for i in range(len(schemaobjectpydf)):
+                if(schemaobjectpydf[i][3] !=  'INFORMATION_SCHEMA'):
+                    schemaobjectpydffinal.append(schemaobjectpydf[i])
+            for i in range(len(schemaobjectpydffinal)):
+                #st.write(schemaobjectpydffinal)
+                if schemaobjectpydffinal[i][4]!='TRANSIENT':
+                   objectsfinal.append(schemaobjectpydffinal[i][1] )  
+                #objectsfinal.append(schemaobjectpydffinal[i][1] + ' - ' +schemaobjectpydffinal[i][4])
+            df = pd.DataFrame({'Objects':objectsfinal})
+            #df_filtered=df[df['Objects'].apply(lambda x:x[4]!= 'TRANSIENT')]
+            #st.write(df)
+    
+    # st.write(df1) 
+    for i in range(len(db)):
+        for j in range (len(schemanames)):
+            #showschemasobj = f"show objects in schema {db[i]}.{schemanames[j]}"
+            showschemasobj=f"SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE IS_TEMPORARY != 'YES' AND IS_TRANSIENT != 'YES'  LIMIT 10 ;"
+            #st.write(showschemasobj)
+            show_schemas_df_obj = session.sql(showschemasobj).collect()
+            st.write(show_schemas_df_obj)
+            show_schemas_df_obj.sort()
+            for i in show_schemas_df_obj:
+                objectlist.append(list(i.as_dict().values()))
+                
+            #for i,n in enumerate(objectlist):
+            for i in range(len(objectlist)):
+                n = objectlist[i]
+                n[2] = n[2] + ' (' + n[4] + ')'
+        
+            #for i,n in enumerate(objectlist):
+            for i in range(len(objectlist)):
+                n = objectlist[i]
+               #objlst.append(n[1])
+                objlst.append(n[2])
+    df = pd.DataFrame({'objectlist':objlst})
+   
+            
+    #st.write(df)
+    return df
+
+objtypetabview = ["TABLE","VIEW"]
+
+def extract_column_names(databasenames,schemanames,objectnames_df,objtypetabview):
+    sqlreturnresult = []
+    columnlist = []
+    tablename = []
+    tabletype = []
+    dbnametemp =  None
+    schemanametemp = None
+    tablenametemp = None
+    # st.text(objectnames_df[0])
+    for a in range (len(databasenames)):
+        for j in range(len(schemanames)):
+            for k in range (len(objectnames_df)):
+                # objectnames_df['objectlist'].iloc[k]
+                temp1,temp2 = str(objectnames_df[k]).split('(')
+                # st.text(type(databasenames[i]))
+                # st.text( schemanames )
+                # st.text(temp1)
+                # st.text(databasenames[i] + ' ' + schemanames[j] + ' '+ temp1)
+                dbnametemp = databasenames[a]
+                schemanametemp = schemanames[j]
+                tablenametemp = temp1
+                showcolumnsobjs = f"show columns in table {dbnametemp}.{schemanametemp}.{tablenametemp}"
+                showcolumnsobjs_df = session.sql(showcolumnsobjs).collect()
+                # st.text(showcolumnsobjs_df)
+                for i in showcolumnsobjs_df:
+                    sqlreturnresult.append(list(i.as_dict().values()))
+                tablename.append(temp1)
+                tabletype.append(temp2)
+    for i in range (len(sqlreturnresult)):
+        columnlist.append(sqlreturnresult[i][2])
+    return columnlist,tablename
+
+ 
+
+
+def checkcloneExists(schemanames):
+    schname = []
+    schclonename = []
+    clonexists = []
+    for i in range(len(schemanames)):
+        # st.write(schemanames[i])
+    # cloneexists = None
+        if "-" in str(schemanames[i]):
+            clonexists.append(True)
+            temp1,temp2 = str(schemanames[i]).split('-')
+            schname.append(temp1)
+            schclonename.append(temp2)
+            # schname[i],schclonename[i] = 
+                    # st.write( schname,schclonename)
+        else:
+            clonexists.append(False) 
+            schname.append(schemanames[i]) 
+            schclonename.append(None) 
+    return schname,schclonename,cloneexists
+def createclone(cloneval):
+    createclonesql = f'create or replace clone {cloneval}'
+    query_clone_df = session.sql(createclonesql)
+    return query_clone_df
+
+
+
+
+@st.cache_data
+def userQuery():
+    cloneobjquery =  f"select LOGIN_NAME from snowflake.account_usage.users where deleted_on is null;"
+    return cloneobjquery
+@st.cache_data
+def roleQuery():
+    cloneobjquery =  f"select name from snowflake.account_usage.roles where deleted_on is null;"
+    return cloneobjquery
+@st.cache_data
+def databaseQuery():
+    cloneobjquery =  f"select database_name from snowflake.information_schema.databases"
+    return cloneobjquery
+@st.cache_data
+def warehouseQuery():
+    cloneobjquery =  f"select distinct(warehouse_name) from snowflake.account_usage.warehouse_events_history;"
+    return cloneobjquery
+@st.cache_data
+def modeSelectQuery(cloneobjquery):
+    query_db_df = session.sql(cloneobjquery).to_pandas()
+    return query_db_df
+
+
+def cloneInputText(ObjectNames):
+    textInput = []
+
+    for i in range(len(ObjectNames)):
+        textInput.append(st.text_input(f"Please Input Clone Name for {ObjectNames[i]}"))
+    return textInput
+
+
+try:
+
+    clonePreferences = ['Customised cloning','Database cloning']
+    # mode = st.selectbox("Please Select Mode To clone Objects",clonePreferences)
+    mode = 'Customised cloning'
+    cloneobjquery = f''
+    cloneobjselect = ''
+    databaseoptioncheck = None
+    schemaoptionCheck = None 
+    tableoptioncheck = None
+    columnoptionCheck = None
+    DatabaseCheck  = None
+    schemaCheck = None
+    tablecheck = None
+    columnCheck = None
+    rolecheck = None
+    usercheck = None
+    warehousecheck = None
+    tablefinalcheck = None
+    databasefinalcheck = None
+    columnfinalcheck =  None
+    schemafinalcheck = None
+    warehousefinalcheck = None
+    rolefinalcheck  = None
+    userfinalcheck = None
+    objtypetabview = ["TABLE","VIEW"]
+
+    if    mode == 'Customised cloning':
+     
+        col1, col2, col3, col4, col5 = st.columns(5)
+        # with col1:
+            # cloneinputs = ['database']
+            # cloneobjselect = st.radio("Please Select An Object for Cloning ",["Database"])
+        cloneobjselect = 'Database'
+        if cloneobjselect == 'Database':
+                cloneobjquery = databaseQuery()
+            
+        with col1:
+            query_db_df = modeSelectQuery(cloneobjquery)     
+            if query_db_df.empty == False:
+                if cloneobjselect == 'Database':
+                    disagreedatabase = None
+                    databasesplitobj = []
+                    databasesplitclone = []
+                    show_db_df,show_db_withclone_df= extract_db_names()
+                    if show_db_withclone_df.empty == False:
+                        databasenames = st.multiselect("Please Select A Source Database To Clone",show_db_withclone_df)
+                        #st.write (len(databasenames))
+                        if len(databasenames) != 0:
+                            agreedatabase = st.radio(" Please confirm your choice !",["Clone Database.","Clone Schemas and Tables in selected Database."])
+                            for i in range(len(databasenames)):
+                                if "-" in databasenames[i]:
+                                        temp1,temp2 = str(databasenames[i]).split('-')
+                                        databasesplitobj.append(temp1)
+                                        databasesplitclone.append(temp2)
+                                else:
+                                        databasesplitobj.append(databasenames[i])
+                                        databasesplitclone.append(None)
+                                if agreedatabase == "Clone Database.":
+                                    st.write("     You have selected:", databasenames[i],"to clone")
+                                    #st.write(databasenames)
+                                    DatabaseCheck = True
+                                if agreedatabase == "Clone Schemas and Tables in selected Database." and len(databasenames)< 2 :
+                                   
+                                    # disagreedatabase = st.checkbox("Select to clone Schemas, Tables and Views in selected Database.")
+                                    # if disagreedatabase:
+                                    schemaoptionCheck = True
+                            if agreedatabase == "Clone Schemas and Tables in selected Database." and len(databasenames) == 2:
+                                    st.markdown('**Please select only one database to Proceed**')
+                            
+            else:
+                st.write('Denied Permissions/ No Objects Present.')
+                st.write('Please select other schema or clone this schema !')
+
+     
+
+        
+        with col2:
+            cloneexists = None
+            # if databasenames is not None and schemaoptionCheck == True:
+            if schemaoptionCheck:
+                    schemasplitObj = []
+                    schemasplitclone = []
+                    show_schemas_df,show_schemas_withclone_df= extract_schema_names(databasenames,"SCHEMA")
+                    #show_schemas_df,show_schemas_withclone_df= extract_schema_names(databasenames,show_schemas_df)
+                    
+                    if show_schemas_withclone_df.empty == False:
+                        disagreedschema = None
+
+                   
+
+                        # # Inject custom CSS to adjust the dropdown length
+                        # st.markdown("""
+                        #     <style>
+                        #     .stMultiSelect div[role='listbox'] {max-width:400px;
+                        #         max-height: 600px; overflow-y: auto; 
+                        #     }
+                        #     </style>
+                        #     """, unsafe_allow_html=True)
+                        
+                        # # Your multiselect component
+                        # schemanames = st1.multiselect('Select options:', show_schemas_withclone_df)
+
+
+                        
+                        schemanames = st.multiselect("Please Select A Schema To Clone",show_schemas_withclone_df)
+                       
+                        if len(schemanames) != 0:
+                            agreedschema = st.radio(" Please confirm your choice !",["Clone Schema","Clone Tables in selected Schema"])
+                            for i in range(len(schemanames)):
+                                if "-" in schemanames[i]:
+                                    temp1,temp2 = str(schemanames[i]).split('-')
+                                    schemasplitObj.append(temp1)
+                                    schemasplitclone.append(temp2)
+                                else:
+                                    schemasplitObj.append(schemanames[i])
+                                    schemasplitclone.append(None)
+                            if agreedschema == "Clone Schema":
+                                schemaCheck = True
+                            elif agreedschema == "Clone Tables in selected Schema" and len(schemanames)< 2:
+                                # disagreedschema = st.checkbox("Select to clone Tables and Views in selected Schema?")
+                                # if disagreedschema:
+                                tableoptioncheck = True
+                            # if agreedschema == False and disagreedschema == False:
+                            #     st.write(" Please confirm your choice !")
+                            # if len(schemanames) == 2:
+                            #     st.markdown('**Please only one schema to Proceed**')
+                            if agreedschema == "Clone Tables in selected Schema" and len(schemanames) == 2:
+                                    st.markdown('**Please select only one Schema to Proceed**')
+                    else:
+                        st.write('Denied Permissions/ No Objects Present.')
+                        st.write('Please select other schema or clone this schema !')
+            if DatabaseCheck == True:
+                clonedatabase = []
+                cloneName = st.text_input("Please Input Clone Name")
+                for i in range(len(databasenames)):
+                    clonedatabase.append(f"create database {cloneName} clone {databasenames[i]}")
+                databasefinalcheck = True
+               
+            else:
+                databasefinalcheck = False
+        with col3:
+            if tableoptioncheck == True:
+                objectnamesvalsobj = []
+                objectnamesvalsclone = []
+                objectnamesvalstype = []
+                # st.write('HIIII')
+                schemanames,schemaclones,cloneexists = checkcloneExists(schemanames)
+                # st.write(schemanames,schemaclones,cloneexists)
+              
+                objectnames_df = extract_object_names(databasenames,schemanames,objtypetabview)
+                
+                #st.write(objectnames_df)
+                
+                if objectnames_df.empty == False:
+                    #st.write(objectnames_df)
+                    #objectnames_df=objectnames_df['TABLE_NAME'].tolist()
+                    #objectnames = st.multiselect("Please Select A Table To Clone",options=objectnames_df)
+                    objectnames = st.multiselect("Please Select A Table To Clone",options=objectnames_df)
+                    st.write(len(objectnames))
+                    #objectnames.sort()
+                    if len(objectnames) != 0:
+                        agreedcolumn = st.radio(" Please confirm your choice !",["Clone Tables"])
+                        if agreedcolumn == "Clone Tables":
+                            for i in range(len(objectnames)):
+                                if "-" in objectnames[i]:
+                                    temp1,temp2 = str(objectnames[i]).split('-')
+                                    #st.write(temp1,temp2)
+                                    temp3,temp4 = str(temp2).split('(')
+                                    objectnamesvalsobj.append(temp1)
+                                    objectnamesvalsclone.append(temp3)
+                                    objectnamesvalstype.append(temp4)
+                                    
+                                else:
+                                    temp3,temp4 = str(objectnames[i]).split('(')
+                                    objectnamesvalsobj.append(temp3)
+                                    objectnamesvalsclone.append(None)
+                                    objectnamesvalstype.append(temp4)
+                            tablecheck = True
+                    
+                        #st.write(objectnamesvalsobj,objectnamesvalsclone)
+                    # tablecheck = True
+                else:
+                    st.write('Denied Permissions/ No Objects Present.')
+                    st.write('Please select other schema or clone this schema !')
+                
+    
+            
+            if schemaCheck == True:
+                clonedatabase = []
+                cloneName = st.text_input("Please Input Clone Name")
+                
+                for i in range(len(databasenames)):
+                    for j in range (len(schemanames)):
+                        clonedatabase.append(f"create schema {defaultdatabase}.{cloneName} clone {databasenames[i]}.{schemasplitObj[i]} ")
+                schemafinalcheck = True
+               
+    
+        
+        
+            
+        with col4:
+            if tablecheck == True:
+                clonedatabase = []
+                textInput = []
+                temp = []
+                Bool = None
+                numberOfObjects = len(objectnamesvalsobj)
+                #cloneName = st.text_input(f"Please Input Clone Name")
+                textInput = cloneInputText(objectnamesvalsobj)
+                for i in range(len(textInput)):
+                    if i == 0:
+                        if textInput[i] == "":
+                            Bool = True
+                        else:
+                            Bool = False
+                for i in range(len(databasenames)):
+                    for j in range (len(schemanames)):
+                        for k in range(len(objectnamesvalsobj)):
+                            clonedatabase.append(f"create table {defaultdatabase}.{defaultschema}.{textInput[k]} clone {databasenames[i]}.{schemanames[j]}.{objectnamesvalsobj[k]}")
+                    
+                tablefinalcheck = True
+    
+        
+    if databasefinalcheck == True:
+                with st.form("my_form_database"):
+                    if cloneName != ""  :
+                        sqlqueryresults = []
+                        st.write(clonedatabase)
+                        # st.write("Firing queries on warehouse"   )
+                        submitted = st.form_submit_button("Submit")
+                        if submitted:
+                           for query in clonedatabase:
+                                st.write(query)
+                                createclone('GSMS')
+                                sqlqueryresults.append(session.sql(query).collect())
+                        st.write(sqlqueryresults)
+                        st.write("Clone has been created")
+    if tablefinalcheck == True:
+            if len(objectnames) <1:
+                st.warning("please Select A Table to proceed.")
+            with st.form("my_form_table"):
+                        if textInput != "" and Bool == False :
+                            st.write(clonedatabase)
+                            sqlqueryresults = []
+                            submitted = st.form_submit_button("Submit")
+                            if submitted:
+                                for query in clonedatabase:
+                                    sqlqueryresults.append(session.sql(query).collect())
+                                st.write(sqlqueryresults)
+                                st.write("Clone has been Created")
+    
+    if schemafinalcheck == True:
+        if len(schemanames) <1:
+                                st.warning("please Select A Schema to proceed.")
+        with st.form("my_form_schema"):
+            if cloneName != "" :
+                            st.write(clonedatabase)
+                            sqlqueryresults = []
+                            submitted = st.form_submit_button("Submit")
+                            if submitted:
+                                for query in clonedatabase:
+                                    sqlqueryresults.append(session.sql(query).collect())
+                                st.write(sqlqueryresults)
+                                st.write("Clone has been Created")
+
+except Exception as e:
+    st.error(f"You can not clone the view.")
+    #st.error(f"You can not clone the table.")
